@@ -166,6 +166,41 @@ if do_run:
     base["_fecha_orig"] = to_str_series(base[col_fecha_b])
     base["_fecha_fmt"]  = parse_date_series(base["_fecha_orig"])
 
+    # Exportar TXT de autorizaciones y radicados antes de las validaciones
+    col_autorizacion = find_col(df_base, ["autorizacion"])
+    if col_autorizacion:
+        autorizaciones = (
+            to_str_series(df_base[col_autorizacion])
+            .replace({"0": np.nan, "nan": np.nan})
+            .dropna()
+            .drop_duplicates()
+        )
+        autorizaciones_txt = "\n".join(autorizaciones.tolist())
+        st.download_button(
+            label="⬇️ Descargar autorizaciones (TXT)",
+            data=autorizaciones_txt,
+            file_name="autorizaciones_pre_validador.txt",
+            mime="text/plain",
+            use_container_width=True,
+        )
+    else:
+        st.warning("Columna 'autorizacion' no encontrada en la Base.")
+
+    radicados = (
+        to_str_series(df_base[col_radicado_b])
+        .replace({"0": np.nan, "nan": np.nan})
+        .dropna()
+        .drop_duplicates()
+    )
+    radicados_txt = "\n".join(radicados.tolist())
+    st.download_button(
+        label="⬇️ Descargar radicados (TXT)",
+        data=radicados_txt,
+        file_name="radicados_pre_validador.txt",
+        mime="text/plain",
+        use_container_width=True,
+    )
+
     # Preparar 102 con columnas esperadas
     a102 = df_102.copy()
     if col_prefijo_102 is not None:
@@ -208,11 +243,13 @@ if do_run:
     )
 
     # Validaciones
-    # 1) fecha_factura Base (formato dd/mm/yyyy) vs FECHA_FACTURA en 102
-    merged["VAL_FECHA_FACTURA"] = np.where(
-        (merged["_fecha_fmt"].notna()) & (merged["_fecha_fmt"] != merged["_fecha_fmt_102"]) & merged["_fecha_fmt_102"].notna(),
-        "NO CORRESPONDE LA FECHA FACTURA ORIGINAL CON LA FECHA FACTURA DE LA 102",
-        ""
+    # 1) Formato de fecha_factura en la Base
+    fecha_raw = to_str_series(merged["_fecha_orig"])
+    fecha_parsed = pd.to_datetime(fecha_raw, dayfirst=True, errors="coerce")
+    merged["VALIDACION_FECHA_FACTURA"] = np.where(
+        fecha_parsed.isna() & (fecha_raw != ""),
+        "formato de fecha_factura no válido",
+        "",
     )
 
     # 2) prefijo/sufijo Base vs PREFIJO_FACTURA/NRO_FACTURA en 102
@@ -243,7 +280,7 @@ if do_run:
     )
 
     # Columnas de salida (mantener Base + validaciones)
-    val_cols = ["VAL_FECHA_FACTURA", "VAL_PREFIJO", "VAL_SUFIJO", "VAL_FACTURA_BASE", "VAL_FACTURA_102"]
+    val_cols = ["VALIDACION_FECHA_FACTURA", "VAL_PREFIJO", "VAL_SUFIJO", "VAL_FACTURA_BASE", "VAL_FACTURA_102"]
     # Mantener nombres originales de la base al frente
     out_cols = list(df_base.columns) + val_cols
 
