@@ -37,6 +37,14 @@ def find_col(df: pd.DataFrame, candidates: List[str]) -> Optional[str]:
 def read_excel_file(uploaded) -> pd.DataFrame:
     return pd.read_excel(uploaded, dtype=str, engine="openpyxl")
 
+
+def read_a102_file(uploaded) -> pd.DataFrame:
+    """Lee el archivo 102 que puede venir en Excel o TXT separado por |."""
+    name = uploaded.name.lower()
+    if name.endswith(".txt"):
+        return pd.read_csv(uploaded, sep="|", dtype=str)
+    return read_excel_file(uploaded)
+
 def to_str_series(s: pd.Series) -> pd.Series:
     return s.astype(str).str.strip()
 
@@ -63,7 +71,7 @@ def any_violations(df: pd.DataFrame, cols: List[str]) -> pd.Series:
 st.title("🧪 Validador de Base vs Archivo 102")
 
 st.markdown("""
-Sube los cuatro archivos en **Excel**:
+Sube los cuatro archivos (Base y 102 pueden ser Excel, 102 también admite TXT separado por |):
 
 1) **Base principal** (contiene: `radicado_sistema_integral`, `fecha_factura`, `prefijo`, `sufijo`, `factura`)
 2) **Archivo 102** (contiene: `FECHA_FACTURA`, `PREFIJO_FACTURA`, `NRO_FACTURA`, opcional `FACTURA` y, ojalá, el mismo `radicado_sistema_integral`)
@@ -76,7 +84,7 @@ with col1:
     base_file = st.file_uploader("📄 Base principal (.xlsx)", type=["xlsx", "xls"])
     cie10_file = st.file_uploader("📚 CIE10 (.xlsx)", type=["xlsx", "xls"])
 with col2:
-    a102_file = st.file_uploader("📄 Archivo 102 (.xlsx)", type=["xlsx", "xls"])
+    a102_file = st.file_uploader("📄 Archivo 102 (.xlsx o .txt)", type=["xlsx", "xls", "txt"])
     mappis_file = st.file_uploader("🧭 MAPPIS (.xlsx)", type=["xlsx", "xls"])
 
 do_run = st.button("🔍 Ejecutar validaciones", type="primary", use_container_width=True)
@@ -96,7 +104,7 @@ if do_run:
         st.stop()
 
     try:
-        df_102 = read_excel_file(a102_file)
+        df_102 = read_a102_file(a102_file)
     except Exception as e:
         st.exception(e)
         st.stop()
@@ -136,7 +144,7 @@ if do_run:
         st.stop()
 
     # Resolver nombres de columnas en 102
-    col_radicado_102 = find_col(df_102, ["radicado_sistema_integral", "radicado", "radicado_sistema"])
+    col_radicado_102 = find_col(df_102, ["radicado_sistema_integral", "radicado", "radicado_sistema", "nro_radicado"])
     col_fecha_102    = find_col(df_102, ["fecha_factura", "fecha de factura", "fec_factura", "fecha"])
     col_prefijo_102  = find_col(df_102, ["prefijo_factura", "prefijo"])
     col_nro_102      = find_col(df_102, ["nro_factura", "numero_factura", "AXA_FECHA_EXP_CENTRALIZADA", "numero", "nro"])
@@ -159,12 +167,12 @@ if do_run:
     # Normalizar/derivar columnas necesarias
     base = df_base.copy()
 
-    base["_prefijo_s"] = to_str_series(base[col_prefijo_b])
-    base["_sufijo_s"]  = to_str_series(base[col_sufijo_b])
-    base["_factura_s"] = to_str_series(base[col_factura_b])
+    base["_prefijo_base"] = to_str_series(base[col_prefijo_b])
+    base["_sufijo_base"] = to_str_series(base[col_sufijo_b])
+    base["_factura_base"] = to_str_series(base[col_factura_b])
     base["_radicado_s"] = to_str_series(base[col_radicado_b])
     base["_fecha_orig"] = to_str_series(base[col_fecha_b])
-    base["_fecha_fmt"]  = parse_date_series(base["_fecha_orig"])
+    base["_fecha_fmt_base"] = parse_date_series(base["_fecha_orig"])
 
     # Exportar TXT de autorizaciones y radicados antes de las validaciones
     col_autorizacion = find_col(df_base, ["autorizacion"])
@@ -204,83 +212,90 @@ if do_run:
     # Preparar 102 con columnas esperadas
     a102 = df_102.copy()
     if col_prefijo_102 is not None:
-        a102["_prefijo_s"] = to_str_series(a102[col_prefijo_102])
+        a102["_prefijo_102"] = to_str_series(a102[col_prefijo_102])
     else:
-        a102["_prefijo_s"] = ""
+        a102["_prefijo_102"] = ""
 
     if col_nro_102 is not None:
-        a102["_nro_s"] = to_str_series(a102[col_nro_102])
+        a102["_nro_102"] = to_str_series(a102[col_nro_102])
     else:
-        a102["_nro_s"] = ""
+        a102["_nro_102"] = ""
 
     if col_factura_102 is not None:
-        a102["_factura_102_s"] = to_str_series(a102[col_factura_102])
+        a102["_factura_102"] = to_str_series(a102[col_factura_102])
     else:
         # Si no existe FACTURA en 102, construimos con PREFIJO+NRO
-        a102["_factura_102_s"] = a102["_prefijo_s"] + a102["_nro_s"]
+        a102["_factura_102"] = a102["_prefijo_102"] + a102["_nro_102"]
 
     if col_radicado_102 is not None:
-        a102["_radicado_s"] = to_str_series(a102[col_radicado_102])
+        a102["_radicado_102_s"] = to_str_series(a102[col_radicado_102])
     else:
         # Si 102 no tiene radicado, igual creamos para evitar errores (join no funcionará)
-        a102["_radicado_s"] = ""
+        a102["_radicado_102_s"] = ""
 
     if col_fecha_102 is not None:
-        a102["_fecha_fmt"] = parse_date_series(to_str_series(a102[col_fecha_102]))
+        a102["_fecha_fmt_102"] = parse_date_series(to_str_series(a102[col_fecha_102]))
     else:
-        a102["_fecha_fmt"] = ""
+        a102["_fecha_fmt_102"] = ""
 
     # Deduplicar 102 por radicado (si existe)
-    if col_radicado_102 is not None and col_radicado_102 in a102.columns:
-        a102 = a102.sort_index().drop_duplicates(subset=["_radicado_s"], keep="last")
+    if col_radicado_102 is not None and "_radicado_102_s" in a102.columns:
+        a102 = a102.sort_index().drop_duplicates(subset=["_radicado_102_s"], keep="last")
 
     # Join Base x 102 por radicado
     merged = base.merge(
-        a102[["_radicado_s", "_fecha_fmt", "_prefijo_s", "_nro_s", "_factura_102_s"]],
-        on="_radicado_s",
+        a102[["_radicado_102_s", "_fecha_fmt_102", "_prefijo_102", "_nro_102", "_factura_102"]],
+        left_on="_radicado_s",
+        right_on="_radicado_102_s",
         how="left",
-        suffixes=("", "_102"),
     )
 
     # Validaciones
     # 1) Formato de fecha_factura en la Base
     fecha_raw = to_str_series(merged["_fecha_orig"])
     fecha_parsed = pd.to_datetime(fecha_raw, dayfirst=True, errors="coerce")
-    merged["VALIDACION_FECHA_FACTURA"] = np.where(
+    merged["val_fecha_factura"] = np.where(
         fecha_parsed.isna() & (fecha_raw != ""),
         "formato de fecha_factura no válido",
         "",
     )
 
     # 2) prefijo/sufijo Base vs PREFIJO_FACTURA/NRO_FACTURA en 102
-    merged["VAL_PREFIJO"] = np.where(
-        (merged["_prefijo_s"].notna()) & (merged["_prefijo_s_102"].notna()) & (merged["_prefijo_s"] != merged["_prefijo_s_102"]),
+    merged["val_prefijo"] = np.where(
+        (merged["_prefijo_base"].notna()) & (merged["_prefijo_102"].notna()) & (merged["_prefijo_base"] != merged["_prefijo_102"]),
         "prefijo no coincide con la 102",
         ""
     )
-    merged["VAL_SUFIJO"] = np.where(
-        (merged["_sufijo_s"].notna()) & (merged["_nro_s"].notna()) & (merged["_sufijo_s"] != merged["_nro_s"]),
+    merged["val_sufijo"] = np.where(
+        (merged["_sufijo_base"].notna()) & (merged["_nro_102"].notna()) & (merged["_sufijo_base"] != merged["_nro_102"]),
         "sufijo no coincide con la 102",
         ""
     )
 
     # 3) (prefijo + sufijo) vs FACTURA de la Base
-    merged["_prefijo_sufijo"] = merged["_prefijo_s"] + merged["_sufijo_s"]
-    merged["VAL_FACTURA_BASE"] = np.where(
-        (merged["_factura_s"].notna()) & (merged["_prefijo_sufijo"].notna()) & (merged["_prefijo_sufijo"] != merged["_factura_s"]),
+    merged["_prefijo_sufijo"] = merged["_prefijo_base"] + merged["_sufijo_base"]
+    merged["val_factura_base"] = np.where(
+        (merged["_factura_base"].notna()) & (merged["_prefijo_sufijo"].notna()) & (merged["_prefijo_sufijo"] != merged["_factura_base"]),
         "prefijo + sufijo no es igual a la factura",
         ""
     )
 
     # 4) (prefijo + sufijo) vs FACTURA de la 102
-    merged["VAL_FACTURA_102"] = np.where(
-        (merged["_prefijo_sufijo"].notna()) & (merged["_factura_102_s"].notna()) & (merged["_prefijo_sufijo"] != merged["_factura_102_s"]),
+    merged["val_factura_102"] = np.where(
+        (merged["_prefijo_sufijo"].notna()) & (merged["_factura_102"].notna()) & (merged["_prefijo_sufijo"] != merged["_factura_102"]),
         "prefijo + sufijo no es igual a la factura (102)",
         ""
     )
 
+    # 5) Radicado Base vs NRO_RADICADO en 102
+    merged["val_radicado"] = np.where(
+        merged["_radicado_102_s"].isna() | (merged["_radicado_s"] != merged["_radicado_102_s"]),
+        "radicado no coincide con la 102",
+        "",
+    )
+
     # Columnas de salida (mantener Base + validaciones)
-    val_cols = ["VALIDACION_FECHA_FACTURA", "VAL_PREFIJO", "VAL_SUFIJO", "VAL_FACTURA_BASE", "VAL_FACTURA_102"]
+    val_cols = ["val_fecha_factura", "val_prefijo", "val_sufijo", "val_factura_base", "val_factura_102", "val_radicado"]
     # Mantener nombres originales de la base al frente
     out_cols = list(df_base.columns) + val_cols
 
